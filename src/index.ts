@@ -1,8 +1,8 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import productsRoutes from './routes/products.routes';
 
-// Cargar variables de entorno
 dotenv.config();
 
 const app: Express = express();
@@ -20,6 +20,9 @@ app.get('/', (req: Request, res: Response) => {
     version: '1.0.0'
   });
 });
+
+// Rutas de API
+app.use('/api/products', productsRoutes);
 
 // Iniciar servidor
 app.listen(PORT, () => {
