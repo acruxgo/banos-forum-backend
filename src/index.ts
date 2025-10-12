@@ -2,6 +2,9 @@ import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import productsRoutes from './routes/products.routes';
+import usersRoutes from './routes/users.routes';
+import shiftsRoutes from './routes/shifts.routes';
+import transactionsRoutes from './routes/transactions.routes';
 
 dotenv.config();
 
@@ -23,6 +26,9 @@ app.get('/', (req: Request, res: Response) => {
 
 // Rutas de API
 app.use('/api/products', productsRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/shifts', shiftsRoutes);
+app.use('/api/transactions', transactionsRoutes);
 
 // Iniciar servidor
 app.listen(PORT, () => {
