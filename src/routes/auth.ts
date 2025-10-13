@@ -36,15 +36,18 @@ router.post('/login', async (req, res) => {
     }
 
     // Generar JWT
+    const payload = {
+      id: user.id,
+      email: user.email,
+      role: user.role
+    };
+    
+    // @ts-ignore
     const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      },
-      authConfig.jwtSecret,
-      { expiresIn: authConfig.jwtExpiresIn }
-    );
+      payload,
+      String(authConfig.jwtSecret),
+      { expiresIn: String(authConfig.jwtExpiresIn) }
+    ) as string;
 
     // Retornar token y datos del usuario (sin password_hash)
     res.json({
