@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/shifts - Obtener todos los turnos
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('shifts')
       .select(`
         *,
@@ -16,8 +16,14 @@ router.get('/', async (req: Request, res: Response) => {
           email,
           role
         )
-      `)
-      .order('start_time', { ascending: false });
+      `);
+
+    // Filtrar por empresa si no es super admin
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.order('start_time', { ascending: false });
 
     if (error) throw error;
 
@@ -37,7 +43,7 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/shifts/active - Obtener turnos activos (abiertos)
 router.get('/active', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('shifts')
       .select(`
         *,
@@ -48,8 +54,14 @@ router.get('/active', async (req: Request, res: Response) => {
           role
         )
       `)
-      .eq('status', 'open')
-      .order('start_time', { ascending: false });
+      .eq('status', 'open');
+
+    // Filtrar por empresa si no es super admin
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.order('start_time', { ascending: false });
 
     if (error) throw error;
 
@@ -71,11 +83,21 @@ router.post('/start', async (req: Request, res: Response) => {
   try {
     const { user_id, initial_cash = 0 } = req.body;
 
-    // Verificar si el usuario ya tiene un turno abierto
+    // Verificar business_id
+    const businessId = req.businessId;
+    if (!businessId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se pudo determinar la empresa'
+      });
+    }
+
+    // Verificar si el usuario ya tiene un turno abierto EN ESTA EMPRESA
     const { data: existingShift } = await supabase
       .from('shifts')
       .select('*')
       .eq('user_id', user_id)
+      .eq('business_id', businessId)
       .eq('status', 'open')
       .single();
 
@@ -89,7 +111,12 @@ router.post('/start', async (req: Request, res: Response) => {
     // Crear nuevo turno
     const { data, error } = await supabase
       .from('shifts')
-      .insert([{ user_id, initial_cash, status: 'open' }])
+      .insert([{ 
+        user_id, 
+        initial_cash, 
+        business_id: businessId,
+        status: 'open' 
+      }])
       .select()
       .single();
 
@@ -113,6 +140,25 @@ router.post('/start', async (req: Request, res: Response) => {
 router.put('/:id/close', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    // Verificar que el turno pertenezca a la empresa
+    let query = supabase
+      .from('shifts')
+      .select('*')
+      .eq('id', id);
+
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: shift, error: fetchError } = await query.single();
+
+    if (fetchError || !shift) {
+      return res.status(404).json({
+        success: false,
+        message: 'Turno no encontrado'
+      });
+    }
 
     const { data, error } = await supabase
       .from('shifts')

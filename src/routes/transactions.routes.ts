@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/transactions - Obtener todas las transacciones
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('transactions')
       .select(`
         *,
@@ -23,8 +23,14 @@ router.get('/', async (req: Request, res: Response) => {
             role
           )
         )
-      `)
-      .order('created_at', { ascending: false });
+      `);
+
+    // Filtrar por empresa si no es super admin
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
 
@@ -46,7 +52,7 @@ router.get('/shift/:shift_id', async (req: Request, res: Response) => {
   try {
     const { shift_id } = req.params;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('transactions')
       .select(`
         *,
@@ -56,8 +62,14 @@ router.get('/shift/:shift_id', async (req: Request, res: Response) => {
           type
         )
       `)
-      .eq('shift_id', shift_id)
-      .order('created_at', { ascending: false });
+      .eq('shift_id', shift_id);
+
+    // Filtrar por empresa si no es super admin
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
 
@@ -96,12 +108,26 @@ router.post('/', async (req: Request, res: Response) => {
       created_by 
     } = req.body;
 
-    // Validar que el turno esté abierto
-    const { data: shift } = await supabase
+    // Verificar business_id
+    const businessId = req.businessId;
+    if (!businessId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se pudo determinar la empresa'
+      });
+    }
+
+    // Validar que el turno esté abierto Y pertenezca a la empresa
+    let shiftQuery = supabase
       .from('shifts')
-      .select('status')
-      .eq('id', shift_id)
-      .single();
+      .select('status, business_id')
+      .eq('id', shift_id);
+
+    if (!req.isSuperAdmin) {
+      shiftQuery = shiftQuery.eq('business_id', businessId);
+    }
+
+    const { data: shift } = await shiftQuery.single();
 
     if (!shift || shift.status !== 'open') {
       return res.status(400).json({
@@ -122,7 +148,8 @@ router.post('/', async (req: Request, res: Response) => {
         total,
         payment_method,
         status: 'completed',
-        created_by
+        created_by,
+        business_id: businessId
       }])
       .select(`
         *,
@@ -156,11 +183,18 @@ router.get('/stats/today', async (req: Request, res: Response) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('transactions')
       .select('total, payment_method, status')
       .gte('created_at', today.toISOString())
       .eq('status', 'completed');
+
+    // Filtrar por empresa si no es super admin
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 

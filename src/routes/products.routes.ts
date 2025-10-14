@@ -6,10 +6,14 @@ const router = Router();
 // GET /api/products - Obtener TODOS los productos (activos e inactivos)
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('type', { ascending: true });
+    let query = supabase.from('products').select('*');
+    
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+    
+    const { data, error } = await query.order('type', { ascending: true });
 
     if (error) throw error;
 

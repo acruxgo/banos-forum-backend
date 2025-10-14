@@ -8,10 +8,15 @@ const router = Router();
 // GET /api/users - Obtener TODOS los usuarios (activos e inactivos)
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, email, name, role, active, created_at')
-      .order('created_at', { ascending: false });
+    // Super admin puede ver todas las empresas o filtrar por una específica
+    let query = supabase.from('users').select('id, email, name, role, active, created_at, business_id');
+    
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
 

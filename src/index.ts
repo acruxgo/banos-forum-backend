@@ -2,11 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-// Importar middleware de autenticación
+// Importar middlewares
 import { authenticateToken, requireRole } from './middleware/auth';
+import { loadBusinessContext } from './middleware/business';
 
 // Importar rutas
 import authRoutes from './routes/auth';
+import businessesRoutes from './routes/businesses.routes';
 import usersRoutes from './routes/users.routes';
 import productsRoutes from './routes/products.routes';
 import shiftsRoutes from './routes/shifts.routes';
@@ -26,7 +28,8 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     message: 'Baños Forum API funcionando',
-    timezone: 'America/Cancun'
+    timezone: 'America/Cancun',
+    multitenant: 'enabled'
   });
 });
 
@@ -36,27 +39,28 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // ==========================================
-// RUTAS PROTEGIDAS (requieren autenticación)
+// RUTAS PROTEGIDAS (requieren autenticación + business context)
 // ==========================================
 
-// Usuarios - Solo admin puede gestionar usuarios
-app.use('/api/users', authenticateToken, requireRole('admin'), usersRoutes);
+// Empresas - Solo super_admin
+app.use('/api/businesses', authenticateToken, loadBusinessContext, requireRole('super_admin'), businessesRoutes);
 
-// Productos - Todos los autenticados pueden ver, solo admin puede crear/editar
-app.use('/api/products', authenticateToken, productsRoutes);
+// Usuarios - Admin y super_admin
+app.use('/api/users', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), usersRoutes);
 
-// Turnos - Todos los autenticados pueden gestionar turnos
-app.use('/api/shifts', authenticateToken, shiftsRoutes);
+// Productos - Admin y super_admin
+app.use('/api/products', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), productsRoutes);
 
-// Transacciones - Todos los autenticados pueden crear/ver transacciones
-app.use('/api/transactions', authenticateToken, transactionsRoutes);
+// Turnos - Todos los autenticados
+app.use('/api/shifts', authenticateToken, loadBusinessContext, shiftsRoutes);
 
-// Reportes - Solo admin y supervisor pueden ver reportes detallados
-// TODO: Crear archivo de reportes cuando lo necesites
+// Transacciones - Todos los autenticados
+app.use('/api/transactions', authenticateToken, loadBusinessContext, transactionsRoutes);
 
 // Servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌴 Zona horaria: America/Cancun`);
   console.log(`🔐 Autenticación JWT habilitada`);
+  console.log(`🏢 Multi-tenant habilitado`);
 });
