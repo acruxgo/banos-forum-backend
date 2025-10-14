@@ -38,11 +38,17 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('users')
-      .select('id, email, name, role, active, created_at')
-      .eq('id', id)
-      .single();
+      .select('id, email, name, role, active, created_at, business_id')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) throw error;
 
@@ -86,17 +92,26 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar si el email ya existe
+    // Verificar business_id
+    if (!req.businessId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Business ID no encontrado'
+      });
+    }
+
+    // Verificar si el email ya existe EN LA MISMA EMPRESA
     const { data: existingUser } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
+      .eq('business_id', req.businessId)
       .single();
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'El email ya está registrado'
+        message: 'El email ya está registrado en esta empresa'
       });
     }
 
@@ -111,6 +126,7 @@ router.post('/', async (req: Request, res: Response) => {
         name, 
         role,
         password_hash,
+        business_id: req.businessId,
         active: true
       }])
       .select('id, email, name, role, active, created_at')
@@ -124,6 +140,7 @@ router.post('/', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al crear usuario:', error);
     res.status(500).json({
       success: false,
       message: 'Error al crear usuario',
@@ -154,11 +171,17 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     // Verificar si el usuario existe
-    const { data: existingUser, error: fetchError } = await supabase
+    let query = supabase
       .from('users')
-      .select('id, email')
-      .eq('id', id)
-      .single();
+      .select('id, email, business_id')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: existingUser, error: fetchError } = await query.single();
 
     if (fetchError || !existingUser) {
       return res.status(404).json({
@@ -167,12 +190,13 @@ router.put('/:id', async (req: Request, res: Response) => {
       });
     }
 
-    // Si el email cambió, verificar que no esté en uso
+    // Si el email cambió, verificar que no esté en uso EN LA MISMA EMPRESA
     if (email !== existingUser.email) {
       const { data: emailExists } = await supabase
         .from('users')
         .select('id')
         .eq('email', email)
+        .eq('business_id', existingUser.business_id)
         .neq('id', id)
         .single();
 
@@ -214,6 +238,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al actualizar usuario:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar usuario',
@@ -228,11 +253,17 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     // Obtener estado actual
-    const { data: user, error: fetchError } = await supabase
+    let query = supabase
       .from('users')
-      .select('active')
-      .eq('id', id)
-      .single();
+      .select('active, business_id')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: user, error: fetchError } = await query.single();
 
     if (fetchError || !user) {
       return res.status(404).json({
@@ -257,6 +288,7 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al cambiar estado del usuario:', error);
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado del usuario',

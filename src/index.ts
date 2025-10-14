@@ -48,8 +48,8 @@ app.use('/api/businesses', authenticateToken, loadBusinessContext, requireRole('
 // Usuarios - Admin y super_admin
 app.use('/api/users', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), usersRoutes);
 
-// Productos - Admin y super_admin
-app.use('/api/products', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), productsRoutes);
+// Productos - Todos los autenticados pueden ver (cajeros necesitan ver productos para vender)
+app.use('/api/products', authenticateToken, loadBusinessContext, productsRoutes);
 
 // Turnos - Todos los autenticados
 app.use('/api/shifts', authenticateToken, loadBusinessContext, shiftsRoutes);
