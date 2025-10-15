@@ -35,11 +35,17 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('products')
       .select('*')
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) throw error;
 
@@ -83,17 +89,26 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar si el nombre ya existe
+    // Verificar business_id
+    if (!req.businessId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Business ID no encontrado'
+      });
+    }
+
+    // Verificar si el nombre ya existe EN LA MISMA EMPRESA
     const { data: existingProduct } = await supabase
       .from('products')
       .select('id')
       .eq('name', name)
+      .eq('business_id', req.businessId)
       .single();
 
     if (existingProduct) {
       return res.status(400).json({
         success: false,
-        message: 'Ya existe un producto con ese nombre'
+        message: 'Ya existe un producto con ese nombre en tu empresa'
       });
     }
 
@@ -104,6 +119,7 @@ router.post('/', async (req: Request, res: Response) => {
         name, 
         price: parseFloat(price),
         type,
+        business_id: req.businessId,
         active: true
       }])
       .select()
@@ -117,6 +133,7 @@ router.post('/', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al crear producto:', error);
     res.status(500).json({
       success: false,
       message: 'Error al crear producto',
@@ -154,11 +171,17 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     // Verificar si el producto existe
-    const { data: existingProduct, error: fetchError } = await supabase
+    let query = supabase
       .from('products')
-      .select('id, name')
-      .eq('id', id)
-      .single();
+      .select('id, name, business_id')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: existingProduct, error: fetchError } = await query.single();
 
     if (fetchError || !existingProduct) {
       return res.status(404).json({
@@ -167,12 +190,13 @@ router.put('/:id', async (req: Request, res: Response) => {
       });
     }
 
-    // Si el nombre cambió, verificar que no esté en uso
+    // Si el nombre cambió, verificar que no esté en uso EN LA MISMA EMPRESA
     if (name !== existingProduct.name) {
       const { data: nameExists } = await supabase
         .from('products')
         .select('id')
         .eq('name', name)
+        .eq('business_id', existingProduct.business_id)
         .neq('id', id)
         .single();
 
@@ -204,6 +228,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al actualizar producto:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar producto',
@@ -218,11 +243,17 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     // Obtener estado actual
-    const { data: product, error: fetchError } = await supabase
+    let query = supabase
       .from('products')
-      .select('active')
-      .eq('id', id)
-      .single();
+      .select('active, business_id')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: product, error: fetchError } = await query.single();
 
     if (fetchError || !product) {
       return res.status(404).json({
@@ -247,6 +278,7 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al cambiar estado del producto:', error);
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado del producto',
