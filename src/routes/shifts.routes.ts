@@ -78,10 +78,18 @@ router.get('/active', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/shifts/start - Iniciar un nuevo turno
+// POST /api/shifts/start - Iniciar un nuevo turno CON ARQUEO
 router.post('/start', async (req: Request, res: Response) => {
   try {
     const { user_id, initial_cash = 0 } = req.body;
+
+    // Validar initial_cash
+    if (initial_cash < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El efectivo inicial no puede ser negativo'
+      });
+    }
 
     // Verificar business_id
     const businessId = req.businessId;
@@ -113,7 +121,7 @@ router.post('/start', async (req: Request, res: Response) => {
       .from('shifts')
       .insert([{ 
         user_id, 
-        initial_cash, 
+        initial_cash: parseFloat(initial_cash), 
         business_id: businessId,
         status: 'open' 
       }])
@@ -128,6 +136,7 @@ router.post('/start', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('Error al iniciar turno:', error);
     res.status(500).json({
       success: false,
       message: 'Error al iniciar turno',
@@ -136,16 +145,33 @@ router.post('/start', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/shifts/:id/close - Cerrar un turno
+// PUT /api/shifts/:id/close - Cerrar un turno CON ARQUEO
 router.put('/:id/close', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { final_cash } = req.body;
+
+    // Validar final_cash
+    if (final_cash === undefined || final_cash === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'El efectivo final es requerido'
+      });
+    }
+
+    if (final_cash < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El efectivo final no puede ser negativo'
+      });
+    }
 
     // Verificar que el turno pertenezca a la empresa
     let query = supabase
       .from('shifts')
-      .select('*')
-      .eq('id', id);
+      .select('*, initial_cash')
+      .eq('id', id)
+      .eq('status', 'open');
 
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
@@ -156,15 +182,34 @@ router.put('/:id/close', async (req: Request, res: Response) => {
     if (fetchError || !shift) {
       return res.status(404).json({
         success: false,
-        message: 'Turno no encontrado'
+        message: 'Turno no encontrado o ya está cerrado'
       });
     }
 
+    // Calcular ventas en efectivo del turno
+    const { data: cashTransactions } = await supabase
+      .from('transactions')
+      .select('total')
+      .eq('shift_id', id)
+      .eq('payment_method', 'cash')
+      .eq('status', 'completed');
+
+    const cashSales = cashTransactions?.reduce((sum, t) => sum + parseFloat(t.total), 0) || 0;
+
+    // Calcular efectivo esperado: inicial + ventas en efectivo
+    const expectedCash = parseFloat(shift.initial_cash) + cashSales;
+
+    // Calcular diferencia: final - esperado
+    const cashDifference = parseFloat(final_cash) - expectedCash;
+
+    // Cerrar turno con arqueo
     const { data, error } = await supabase
       .from('shifts')
       .update({ 
         status: 'closed', 
-        end_time: new Date().toISOString() 
+        end_time: new Date().toISOString(),
+        final_cash: parseFloat(final_cash),
+        cash_difference: cashDifference
       })
       .eq('id', id)
       .select()
@@ -175,9 +220,20 @@ router.put('/:id/close', async (req: Request, res: Response) => {
     res.json({
       success: true,
       message: 'Turno cerrado exitosamente',
-      data: data
+      data: {
+        ...data,
+        arqueo: {
+          initial_cash: parseFloat(shift.initial_cash),
+          cash_sales: cashSales,
+          expected_cash: expectedCash,
+          final_cash: parseFloat(final_cash),
+          difference: cashDifference,
+          status: cashDifference === 0 ? 'exacto' : cashDifference > 0 ? 'sobrante' : 'faltante'
+        }
+      }
     });
   } catch (error: any) {
+    console.error('Error al cerrar turno:', error);
     res.status(500).json({
       success: false,
       message: 'Error al cerrar turno',
