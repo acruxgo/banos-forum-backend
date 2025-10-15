@@ -16,10 +16,19 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email y contraseña son requeridos' });
     }
 
-    // Buscar usuario por email
+    // Buscar usuario por email CON datos de su empresa
     const { data: user, error } = await supabase
       .from('users')
-      .select('*')
+      .select(`
+        *,
+        businesses (
+          id,
+          name,
+          slug,
+          logo_url,
+          primary_color
+        )
+      `)
       .eq('email', email)
       .eq('active', true)
       .single();
@@ -49,15 +58,17 @@ router.post('/login', async (req, res) => {
       { expiresIn: String(authConfig.jwtExpiresIn) }
     ) as string;
 
-    // Retornar token y datos del usuario (sin password_hash)
+    // Retornar token, datos del usuario Y datos de la empresa
     res.json({
       token,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role
-      }
+        role: user.role,
+        business_id: user.business_id
+      },
+      business: user.businesses || null // Datos de la empresa (logo, color)
     });
   } catch (error) {
     console.error('Error en login:', error);
