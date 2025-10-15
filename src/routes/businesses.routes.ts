@@ -263,4 +263,92 @@ router.patch('/:id/toggle-active', requireSuperAdmin, async (req: Request, res: 
   }
 });
 
+// GET /api/businesses/stats - Estadísticas globales (solo super admin)
+router.get('/stats/global', requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    // Total de empresas
+    const { count: totalBusinesses } = await supabase
+      .from('businesses')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de usuarios
+    const { count: totalUsers } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de productos
+    const { count: totalProducts } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de transacciones y ventas
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('total');
+
+    const totalSales = transactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
+
+    // Empresas con más usuarios
+    const { data: businessesWithUsers } = await supabase
+      .from('businesses')
+      .select(`
+        id,
+        name,
+        slug,
+        plan,
+        active,
+        users (count)
+      `);
+
+    // Empresas con más ventas
+    const { data: businessesData } = await supabase
+      .from('businesses')
+      .select('id, name, slug, plan, active');
+
+    const businessesWithSales = await Promise.all(
+      (businessesData || []).map(async (business) => {
+        const { data: businessTransactions } = await supabase
+          .from('transactions')
+          .select('total')
+          .eq('business_id', business.id);
+
+        const totalSales = businessTransactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
+
+        return {
+          ...business,
+          totalSales,
+          transactionCount: businessTransactions?.length || 0
+        };
+      })
+    );
+
+    // Ordenar por ventas
+    const topBusinesses = businessesWithSales
+      .sort((a, b) => b.totalSales - a.totalSales)
+      .slice(0, 5);
+
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalBusinesses: totalBusinesses || 0,
+          totalUsers: totalUsers || 0,
+          totalProducts: totalProducts || 0,
+          totalSales: totalSales,
+          totalTransactions: transactions?.length || 0
+        },
+        topBusinesses,
+        businessesWithUsers: businessesWithUsers || []
+      }
+    });
+  } catch (error: any) {
+    console.error('Error al obtener estadísticas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener estadísticas',
+      error: error.message
+    });
+  }
+});
+
 export default router;
