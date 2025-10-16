@@ -15,21 +15,99 @@ const requireSuperAdmin = (req: Request, res: Response, next: any) => {
   next();
 };
 
-// GET /api/businesses - Obtener todas las empresas (solo super admin)
+// GET /api/businesses - Con búsqueda, filtros y paginación (solo super admin)
 router.get('/', requireSuperAdmin, async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    const { 
+      search, 
+      plan, 
+      active, 
+      page = '1', 
+      limit = '10' 
+    } = req.query;
+
+    // Convertir a números
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Construir query base
+    let query = supabase
       .from('businesses')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' });
+
+    // Filtro de búsqueda (nombre, email o slug)
+    if (search && search !== '') {
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,slug.ilike.%${search}%`);
+    }
+
+    // Filtro por plan (basic, premium, enterprise)
+    if (plan && plan !== '' && plan !== 'all') {
+      query = query.eq('plan', plan);
+    }
+
+    // Filtro por activo/inactivo
+    if (active !== undefined && active !== '' && active !== 'all') {
+      query = query.eq('active', active === 'true');
+    }
+
+    // Aplicar paginación y ordenamiento
+    const { data, error, count } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (error) throw error;
 
+    // Obtener contadores y ventas totales para cada empresa
+    const businessesWithStats = await Promise.all(
+      (data || []).map(async (business) => {
+        // Contar usuarios
+        const { count: usersCount } = await supabase
+          .from('users')
+          .select('*', { count: 'exact', head: true })
+          .eq('business_id', business.id);
+
+        // Contar productos
+        const { count: productsCount } = await supabase
+          .from('products')
+          .select('*', { count: 'exact', head: true })
+          .eq('business_id', business.id);
+
+        // Contar transacciones y sumar ventas
+        const { data: transactions } = await supabase
+          .from('transactions')
+          .select('total')
+          .eq('business_id', business.id)
+          .eq('status', 'completed');
+
+        const totalSales = transactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
+        const transactionCount = transactions?.length || 0;
+
+        return {
+          ...business,
+          _count: {
+            users: usersCount || 0,
+            products: productsCount || 0,
+            transactions: transactionCount
+          },
+          total_sales: totalSales
+        };
+      })
+    );
+
+    // Respuesta con metadata
     res.json({
       success: true,
-      data: data
+      data: businessesWithStats,
+      pagination: {
+        total: count || 0,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil((count || 0) / limitNum)
+      }
     });
   } catch (error: any) {
+    console.error('Error al obtener empresas:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener empresas',
@@ -263,7 +341,7 @@ router.patch('/:id/toggle-active', requireSuperAdmin, async (req: Request, res: 
   }
 });
 
-// GET /api/businesses/stats - Estadísticas globales (solo super admin)
+// GET /api/businesses/stats/global - Estadísticas globales (solo super admin)
 router.get('/stats/global', requireSuperAdmin, async (req: Request, res: Response) => {
   try {
     // Total de empresas

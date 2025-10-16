@@ -3,9 +3,26 @@ import { supabase } from '../config/supabase';
 
 const router = Router();
 
-// GET /api/transactions - Obtener todas las transacciones
+// GET /api/transactions - Con búsqueda, filtros de fecha, método de pago y paginación
 router.get('/', async (req: Request, res: Response) => {
   try {
+    const { 
+      search,
+      payment_method,
+      status,
+      date_from,
+      date_to,
+      shift_id,
+      page = '1', 
+      limit = '50' 
+    } = req.query;
+
+    // Convertir a números
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Construir query base con joins
     let query = supabase
       .from('transactions')
       .select(`
@@ -23,22 +40,71 @@ router.get('/', async (req: Request, res: Response) => {
             role
           )
         )
-      `);
+      `, { count: 'exact' });
 
     // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    // Filtro por método de pago
+    if (payment_method && payment_method !== '' && payment_method !== 'all') {
+      query = query.eq('payment_method', payment_method);
+    }
+
+    // Filtro por status
+    if (status && status !== '' && status !== 'all') {
+      query = query.eq('status', status);
+    }
+
+    // Filtro por turno específico
+    if (shift_id && shift_id !== '') {
+      query = query.eq('shift_id', shift_id);
+    }
+
+    // Filtro por rango de fechas
+    if (date_from) {
+      query = query.gte('created_at', date_from);
+    }
+    
+    if (date_to) {
+      // Agregar 23:59:59 al día final para incluir todo el día
+      const endDate = new Date(date_to as string);
+      endDate.setHours(23, 59, 59, 999);
+      query = query.lte('created_at', endDate.toISOString());
+    }
+
+    // Aplicar paginación y ordenamiento
+    const { data, error, count } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (error) throw error;
 
+    // Si hay búsqueda por nombre de producto, filtrar en memoria (Supabase no permite búsqueda en relaciones)
+    let filteredData = data || [];
+    if (search && search !== '') {
+      filteredData = filteredData.filter((transaction: any) => 
+        transaction.products?.name?.toLowerCase().includes((search as string).toLowerCase())
+      );
+    }
+
+    // Recalcular el total si hay búsqueda
+    const total = search && search !== '' ? filteredData.length : (count || 0);
+
+    // Respuesta con metadata
     res.json({
       success: true,
-      data: data
+      data: filteredData,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum)
+      }
     });
   } catch (error: any) {
+    console.error('Error al obtener transacciones:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener transacciones',

@@ -5,26 +5,67 @@ import { authConfig } from '../config/auth';
 
 const router = Router();
 
-// GET /api/users - Obtener TODOS los usuarios (activos e inactivos)
+// GET /api/users - Con búsqueda, filtros y paginación
 router.get('/', async (req: Request, res: Response) => {
   try {
-    // Super admin puede ver todas las empresas o filtrar por una específica
-    let query = supabase.from('users').select('id, email, name, role, active, created_at, business_id');
-    
-    // Si no es super admin, filtrar por su empresa
+    const { 
+      search, 
+      role, 
+      active, 
+      page = '1', 
+      limit = '10' 
+    } = req.query;
+
+    // Convertir a números
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Construir query base
+    let query = supabase
+      .from('users')
+      .select('id, email, name, role, active, created_at, business_id', { count: 'exact' });
+
+    // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
     }
-    
-    const { data, error } = await query.order('created_at', { ascending: false });
+
+    // Filtro de búsqueda (nombre o email)
+    if (search && search !== '') {
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+    }
+
+    // Filtro por rol
+    if (role && role !== '' && role !== 'all') {
+      query = query.eq('role', role);
+    }
+
+    // Filtro por activo/inactivo
+    if (active !== undefined && active !== '' && active !== 'all') {
+      query = query.eq('active', active === 'true');
+    }
+
+    // Aplicar paginación y ordenamiento
+    const { data, error, count } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (error) throw error;
 
+    // Respuesta con metadata
     res.json({
       success: true,
-      data: data
+      data: data || [],
+      pagination: {
+        total: count || 0,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil((count || 0) / limitNum)
+      }
     });
   } catch (error: any) {
+    console.error('Error al obtener usuarios:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener usuarios',

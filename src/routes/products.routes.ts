@@ -3,25 +3,67 @@ import { supabase } from '../config/supabase';
 
 const router = Router();
 
-// GET /api/products - Obtener TODOS los productos (activos e inactivos)
+// GET /api/products - Con búsqueda, filtros y paginación
 router.get('/', async (req: Request, res: Response) => {
   try {
-    let query = supabase.from('products').select('*');
-    
-    // Si no es super admin, filtrar por su empresa
+    const { 
+      search, 
+      type, 
+      active, 
+      page = '1', 
+      limit = '10' 
+    } = req.query;
+
+    // Convertir a números
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Construir query base
+    let query = supabase
+      .from('products')
+      .select('*', { count: 'exact' });
+
+    // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
     }
-    
-    const { data, error } = await query.order('type', { ascending: true });
+
+    // Filtro de búsqueda (nombre)
+    if (search && search !== '') {
+      query = query.ilike('name', `%${search}%`);
+    }
+
+    // Filtro por tipo (baño, ducha, locker)
+    if (type && type !== '' && type !== 'all') {
+      query = query.eq('type', type);
+    }
+
+    // Filtro por activo/inactivo
+    if (active !== undefined && active !== '' && active !== 'all') {
+      query = query.eq('active', active === 'true');
+    }
+
+    // Aplicar paginación y ordenamiento
+    const { data, error, count } = await query
+      .order('type', { ascending: true })
+      .range(offset, offset + limitNum - 1);
 
     if (error) throw error;
 
+    // Respuesta con metadata
     res.json({
       success: true,
-      data: data
+      data: data || [],
+      pagination: {
+        total: count || 0,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil((count || 0) / limitNum)
+      }
     });
   } catch (error: any) {
+    console.error('Error al obtener productos:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener productos',
