@@ -3,7 +3,7 @@ import { supabase } from '../config/supabase';
 
 const router = Router();
 
-// GET /api/transactions - Con búsqueda, filtros de fecha, método de pago y paginación
+// GET /api/transactions - Con búsqueda, filtros de fecha, método de pago, empleado y paginación
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { 
@@ -13,6 +13,7 @@ router.get('/', async (req: Request, res: Response) => {
       date_from,
       date_to,
       shift_id,
+      created_by, // ← NUEVO: filtro por empleado
       page = '1', 
       limit = '50' 
     } = req.query;
@@ -45,6 +46,11 @@ router.get('/', async (req: Request, res: Response) => {
     // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
+    }
+
+    // Filtro por empleado (created_by) ← NUEVO
+    if (created_by && created_by !== '' && created_by !== 'all') {
+      query = query.eq('created_by', created_by);
     }
 
     // Filtro por método de pago
