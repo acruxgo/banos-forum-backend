@@ -16,7 +16,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email y contraseña son requeridos' });
     }
 
-    // Buscar usuario por email CON datos de su empresa
+    // Buscar usuario por email CON datos de su empresa (incluido plan)
     const { data: user, error } = await supabase
       .from('users')
       .select(`
@@ -26,7 +26,8 @@ router.post('/login', async (req, res) => {
           name,
           slug,
           logo_url,
-          primary_color
+          primary_color,
+          plan
         )
       `)
       .eq('email', email)
@@ -58,7 +59,14 @@ router.post('/login', async (req, res) => {
       { expiresIn: String(authConfig.jwtExpiresIn) }
     ) as string;
 
-    // Retornar token, datos del usuario Y datos de la empresa
+    console.log('✅ Login exitoso:', {
+      email: user.email,
+      role: user.role,
+      business: user.businesses?.name,
+      plan: user.businesses?.plan || 'N/A'
+    });
+
+    // Retornar token, datos del usuario Y datos de la empresa (incluido plan)
     res.json({
       token,
       user: {
@@ -68,10 +76,10 @@ router.post('/login', async (req, res) => {
         role: user.role,
         business_id: user.business_id
       },
-      business: user.businesses || null // Datos de la empresa (logo, color)
+      business: user.businesses || null // Incluye id, name, slug, logo_url, primary_color, plan
     });
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error('❌ Error en login:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

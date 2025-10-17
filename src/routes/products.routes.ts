@@ -9,6 +9,7 @@ router.get('/', async (req: Request, res: Response) => {
     const { 
       search, 
       type, 
+      category_id,
       active, 
       page = '1', 
       limit = '10' 
@@ -19,10 +20,16 @@ router.get('/', async (req: Request, res: Response) => {
     const limitNum = parseInt(limit as string);
     const offset = (pageNum - 1) * limitNum;
 
-    // Construir query base
+    // Construir query base con JOIN a categories
     let query = supabase
       .from('products')
-      .select('*', { count: 'exact' });
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `, { count: 'exact' });
 
     // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
@@ -37,6 +44,11 @@ router.get('/', async (req: Request, res: Response) => {
     // Filtro por tipo (baño, ducha, locker)
     if (type && type !== '' && type !== 'all') {
       query = query.eq('type', type);
+    }
+
+    // Filtro por categoría
+    if (category_id && category_id !== '' && category_id !== 'all') {
+      query = query.eq('category_id', category_id);
     }
 
     // Filtro por activo/inactivo
@@ -79,7 +91,13 @@ router.get('/:id', async (req: Request, res: Response) => {
     
     let query = supabase
       .from('products')
-      .select('*')
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
       .eq('id', id);
 
     // Si no es super admin, filtrar por su empresa
@@ -107,13 +125,20 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/products - Crear nuevo producto
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, price, type } = req.body;
+    const { name, price, type, category_id } = req.body;
 
     // Validaciones
     if (!name || !price || !type) {
       return res.status(400).json({
         success: false,
         message: 'Nombre, precio y tipo son requeridos'
+      });
+    }
+
+    if (!category_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'La categoría es requerida'
       });
     }
 
@@ -139,6 +164,22 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // Verificar que la categoría existe y pertenece a la empresa
+    const { data: category, error: categoryError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('id', category_id)
+      .eq('business_id', req.businessId)
+      .eq('active', true)
+      .single();
+
+    if (categoryError || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Categoría no encontrada o inactiva'
+      });
+    }
+
     // Verificar si el nombre ya existe EN LA MISMA EMPRESA
     const { data: existingProduct } = await supabase
       .from('products')
@@ -161,10 +202,17 @@ router.post('/', async (req: Request, res: Response) => {
         name, 
         price: parseFloat(price),
         type,
+        category_id,
         business_id: req.businessId,
         active: true
       }])
-      .select()
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
       .single();
 
     if (error) throw error;
@@ -188,13 +236,20 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, price, type } = req.body;
+    const { name, price, type, category_id } = req.body;
 
     // Validaciones
     if (!name || !price || !type) {
       return res.status(400).json({
         success: false,
         message: 'Nombre, precio y tipo son requeridos'
+      });
+    }
+
+    if (!category_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'La categoría es requerida'
       });
     }
 
@@ -232,6 +287,22 @@ router.put('/:id', async (req: Request, res: Response) => {
       });
     }
 
+    // Verificar que la categoría existe y pertenece a la empresa
+    const { data: category, error: categoryError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('id', category_id)
+      .eq('business_id', existingProduct.business_id)
+      .eq('active', true)
+      .single();
+
+    if (categoryError || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Categoría no encontrada o inactiva'
+      });
+    }
+
     // Si el nombre cambió, verificar que no esté en uso EN LA MISMA EMPRESA
     if (name !== existingProduct.name) {
       const { data: nameExists } = await supabase
@@ -256,10 +327,17 @@ router.put('/:id', async (req: Request, res: Response) => {
       .update({ 
         name, 
         price: parseFloat(price),
-        type
+        type,
+        category_id
       })
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
       .single();
 
     if (error) throw error;
@@ -309,7 +387,13 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
       .from('products')
       .update({ active: !product.active })
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
       .single();
 
     if (error) throw error;

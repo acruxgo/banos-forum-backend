@@ -11,6 +11,7 @@ import authRoutes from './routes/auth';
 import businessesRoutes from './routes/businesses.routes';
 import usersRoutes from './routes/users.routes';
 import productsRoutes from './routes/products.routes';
+import categoriesRoutes from './routes/categories';
 import shiftsRoutes from './routes/shifts.routes';
 import transactionsRoutes from './routes/transactions.routes';
 
@@ -47,6 +48,9 @@ app.use('/api/businesses', authenticateToken, loadBusinessContext, requireRole('
 
 // Usuarios - Admin y super_admin
 app.use('/api/users', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), usersRoutes);
+
+// Categorías - Admin y super_admin (los cajeros solo leen)
+app.use('/api/categories', authenticateToken, loadBusinessContext, categoriesRoutes);
 
 // Productos - Todos los autenticados pueden ver (cajeros necesitan ver productos para vender)
 app.use('/api/products', authenticateToken, loadBusinessContext, productsRoutes);

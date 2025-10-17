@@ -15,6 +15,102 @@ const requireSuperAdmin = (req: Request, res: Response, next: any) => {
   next();
 };
 
+// ==========================================
+// RUTAS ESPECÍFICAS PRIMERO (antes de /:id)
+// ==========================================
+
+// GET /api/businesses/stats/global - Estadísticas globales (solo super admin)
+router.get('/stats/global', requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    // Total de empresas
+    const { count: totalBusinesses } = await supabase
+      .from('businesses')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de usuarios
+    const { count: totalUsers } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de productos
+    const { count: totalProducts } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true });
+
+    // Total de transacciones y ventas
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('total');
+
+    const totalSales = transactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
+
+    // Empresas con más usuarios
+    const { data: businessesWithUsers } = await supabase
+      .from('businesses')
+      .select(`
+        id,
+        name,
+        slug,
+        plan,
+        active,
+        users (count)
+      `);
+
+    // Empresas con más ventas
+    const { data: businessesData } = await supabase
+      .from('businesses')
+      .select('id, name, slug, plan, active');
+
+    const businessesWithSales = await Promise.all(
+      (businessesData || []).map(async (business) => {
+        const { data: businessTransactions } = await supabase
+          .from('transactions')
+          .select('total')
+          .eq('business_id', business.id);
+
+        const totalSales = businessTransactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
+
+        return {
+          ...business,
+          totalSales,
+          transactionCount: businessTransactions?.length || 0
+        };
+      })
+    );
+
+    // Ordenar por ventas
+    const topBusinesses = businessesWithSales
+      .sort((a, b) => b.totalSales - a.totalSales)
+      .slice(0, 5);
+
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          totalBusinesses: totalBusinesses || 0,
+          totalUsers: totalUsers || 0,
+          totalProducts: totalProducts || 0,
+          totalSales: totalSales,
+          totalTransactions: transactions?.length || 0
+        },
+        topBusinesses,
+        businessesWithUsers: businessesWithUsers || []
+      }
+    });
+  } catch (error: any) {
+    console.error('Error al obtener estadísticas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener estadísticas',
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// RUTAS CON PARÁMETROS DINÁMICOS
+// ==========================================
+
 // GET /api/businesses - Con búsqueda, filtros y paginación (solo super admin)
 router.get('/', requireSuperAdmin, async (req: Request, res: Response) => {
   try {
@@ -172,6 +268,10 @@ router.post('/', requireSuperAdmin, async (req: Request, res: Response) => {
       });
     }
 
+    // Validar plan
+    const validPlans = ['basic', 'premium', 'enterprise'];
+    const selectedPlan = plan && validPlans.includes(plan) ? plan : 'basic';
+
     // Verificar que el slug no exista
     const { data: existingBusiness } = await supabase
       .from('businesses')
@@ -200,7 +300,7 @@ router.post('/', requireSuperAdmin, async (req: Request, res: Response) => {
       });
     }
 
-    // Crear empresa
+    // Crear empresa con plan específico
     const { data: business, error: businessError } = await supabase
       .from('businesses')
       .insert([{ 
@@ -209,13 +309,15 @@ router.post('/', requireSuperAdmin, async (req: Request, res: Response) => {
         email,
         phone: phone || '',
         address: address || '',
-        plan: plan || 'basic',
+        plan: selectedPlan,
         active: true
       }])
       .select()
       .single();
 
     if (businessError) throw businessError;
+
+    console.log('✅ Empresa creada con plan:', selectedPlan, business);
 
     // Hashear contraseña del admin
     const password_hash = await bcrypt.hash(adminPassword, authConfig.bcryptSaltRounds);
@@ -249,6 +351,7 @@ router.post('/', requireSuperAdmin, async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    console.error('❌ Error al crear empresa:', error);
     res.status(500).json({
       success: false,
       message: 'Error al crear empresa',
@@ -268,7 +371,15 @@ router.put('/:id', requireSuperAdmin, async (req: Request, res: Response) => {
     if (email) updateData.email = email;
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
-    if (plan) updateData.plan = plan;
+    
+    // Validar plan si se proporciona
+    if (plan) {
+      const validPlans = ['basic', 'premium', 'enterprise'];
+      if (validPlans.includes(plan)) {
+        updateData.plan = plan;
+      }
+    }
+    
     if (primary_color) updateData.primary_color = primary_color;
     if (logo_url !== undefined) updateData.logo_url = logo_url;
     
@@ -283,12 +394,15 @@ router.put('/:id', requireSuperAdmin, async (req: Request, res: Response) => {
 
     if (error) throw error;
 
+    console.log('✅ Empresa actualizada:', data);
+
     res.json({
       success: true,
       message: 'Empresa actualizada exitosamente',
       data: data
     });
   } catch (error: any) {
+    console.error('❌ Error al actualizar empresa:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar empresa',
@@ -336,94 +450,6 @@ router.patch('/:id/toggle-active', requireSuperAdmin, async (req: Request, res: 
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado de la empresa',
-      error: error.message
-    });
-  }
-});
-
-// GET /api/businesses/stats/global - Estadísticas globales (solo super admin)
-router.get('/stats/global', requireSuperAdmin, async (req: Request, res: Response) => {
-  try {
-    // Total de empresas
-    const { count: totalBusinesses } = await supabase
-      .from('businesses')
-      .select('*', { count: 'exact', head: true });
-
-    // Total de usuarios
-    const { count: totalUsers } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true });
-
-    // Total de productos
-    const { count: totalProducts } = await supabase
-      .from('products')
-      .select('*', { count: 'exact', head: true });
-
-    // Total de transacciones y ventas
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('total');
-
-    const totalSales = transactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
-
-    // Empresas con más usuarios
-    const { data: businessesWithUsers } = await supabase
-      .from('businesses')
-      .select(`
-        id,
-        name,
-        slug,
-        plan,
-        active,
-        users (count)
-      `);
-
-    // Empresas con más ventas
-    const { data: businessesData } = await supabase
-      .from('businesses')
-      .select('id, name, slug, plan, active');
-
-    const businessesWithSales = await Promise.all(
-      (businessesData || []).map(async (business) => {
-        const { data: businessTransactions } = await supabase
-          .from('transactions')
-          .select('total')
-          .eq('business_id', business.id);
-
-        const totalSales = businessTransactions?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
-
-        return {
-          ...business,
-          totalSales,
-          transactionCount: businessTransactions?.length || 0
-        };
-      })
-    );
-
-    // Ordenar por ventas
-    const topBusinesses = businessesWithSales
-      .sort((a, b) => b.totalSales - a.totalSales)
-      .slice(0, 5);
-
-    res.json({
-      success: true,
-      data: {
-        overview: {
-          totalBusinesses: totalBusinesses || 0,
-          totalUsers: totalUsers || 0,
-          totalProducts: totalProducts || 0,
-          totalSales: totalSales,
-          totalTransactions: transactions?.length || 0
-        },
-        topBusinesses,
-        businessesWithUsers: businessesWithUsers || []
-      }
-    });
-  } catch (error: any) {
-    console.error('Error al obtener estadísticas:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener estadísticas',
       error: error.message
     });
   }
