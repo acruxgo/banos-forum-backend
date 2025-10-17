@@ -10,7 +10,8 @@ router.get('/', async (req: Request, res: Response) => {
       search, 
       type, 
       category_id,
-      active, 
+      active,
+      show_deleted = 'false', // Nuevo parámetro
       page = '1', 
       limit = '10' 
     } = req.query;
@@ -35,6 +36,14 @@ router.get('/', async (req: Request, res: Response) => {
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
     }
+
+    // Filtrar eliminados (por defecto no mostrar)
+    if (show_deleted === 'false') {
+      query = query.is('deleted_at', null);
+    } else if (show_deleted === 'only') {
+      query = query.not('deleted_at', 'is', null);
+    }
+    // Si show_deleted === 'true', mostrar todos (incluyendo eliminados)
 
     // Filtro de búsqueda (nombre)
     if (search && search !== '') {
@@ -180,15 +189,21 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar si el nombre ya existe EN LA MISMA EMPRESA
+    // Verificar si el nombre ya existe EN LA MISMA EMPRESA (incluyendo eliminados)
     const { data: existingProduct } = await supabase
       .from('products')
-      .select('id')
+      .select('id, deleted_at')
       .eq('name', name)
       .eq('business_id', req.businessId)
       .single();
 
     if (existingProduct) {
+      if (existingProduct.deleted_at) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ya existe un producto con ese nombre (eliminado). Puede restaurarlo en lugar de crear uno nuevo.'
+        });
+      }
       return res.status(400).json({
         success: false,
         message: 'Ya existe un producto con ese nombre en tu empresa'
@@ -270,7 +285,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     // Verificar si el producto existe
     let query = supabase
       .from('products')
-      .select('id, name, business_id')
+      .select('id, name, business_id, deleted_at')
       .eq('id', id);
 
     // Si no es super admin, filtrar por su empresa
@@ -284,6 +299,14 @@ router.put('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: 'Producto no encontrado'
+      });
+    }
+
+    // No permitir editar productos eliminados
+    if (existingProduct.deleted_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se puede editar un producto eliminado. Debe restaurarlo primero.'
       });
     }
 
@@ -310,6 +333,7 @@ router.put('/:id', async (req: Request, res: Response) => {
         .select('id')
         .eq('name', name)
         .eq('business_id', existingProduct.business_id)
+        .is('deleted_at', null)
         .neq('id', id)
         .single();
 
@@ -365,7 +389,7 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
     // Obtener estado actual
     let query = supabase
       .from('products')
-      .select('active, business_id')
+      .select('active, business_id, deleted_at')
       .eq('id', id);
 
     // Si no es super admin, filtrar por su empresa
@@ -379,6 +403,14 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: 'Producto no encontrado'
+      });
+    }
+
+    // No permitir activar/desactivar productos eliminados
+    if (product.deleted_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se puede modificar un producto eliminado. Debe restaurarlo primero.'
       });
     }
 
@@ -408,6 +440,144 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado del producto',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/products/:id - Soft delete (marcar como eliminado)
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si el producto existe
+    let query = supabase
+      .from('products')
+      .select('id, name, business_id, deleted_at')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: product, error: fetchError } = await query.single();
+
+    if (fetchError || !product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Producto no encontrado'
+      });
+    }
+
+    // Verificar si ya está eliminado
+    if (product.deleted_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'El producto ya está eliminado'
+      });
+    }
+
+    // Marcar como eliminado (soft delete)
+    const { data, error } = await supabase
+      .from('products')
+      .update({ 
+        deleted_at: new Date().toISOString(),
+        active: false // También desactivar
+      })
+      .eq('id', id)
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
+      .single();
+
+    if (error) throw error;
+
+    console.log('✅ Producto eliminado (soft delete):', product.name);
+
+    res.json({
+      success: true,
+      message: 'Producto eliminado exitosamente',
+      data: data
+    });
+  } catch (error: any) {
+    console.error('❌ Error al eliminar producto:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al eliminar producto',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/products/:id/restore - Restaurar producto eliminado
+router.patch('/:id/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si el producto existe
+    let query = supabase
+      .from('products')
+      .select('id, name, business_id, deleted_at')
+      .eq('id', id);
+
+    // Si no es super admin, filtrar por su empresa
+    if (!req.isSuperAdmin && req.businessId) {
+      query = query.eq('business_id', req.businessId);
+    }
+
+    const { data: product, error: fetchError } = await query.single();
+
+    if (fetchError || !product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Producto no encontrado'
+      });
+    }
+
+    // Verificar si está eliminado
+    if (!product.deleted_at) {
+      return res.status(400).json({
+        success: false,
+        message: 'El producto no está eliminado'
+      });
+    }
+
+    // Restaurar producto
+    const { data, error } = await supabase
+      .from('products')
+      .update({ 
+        deleted_at: null,
+        active: true // Reactivar al restaurar
+      })
+      .eq('id', id)
+      .select(`
+        *,
+        categories (
+          id,
+          name
+        )
+      `)
+      .single();
+
+    if (error) throw error;
+
+    console.log('✅ Producto restaurado:', product.name);
+
+    res.json({
+      success: true,
+      message: 'Producto restaurado exitosamente',
+      data: data
+    });
+  } catch (error: any) {
+    console.error('❌ Error al restaurar producto:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al restaurar producto',
       error: error.message
     });
   }
