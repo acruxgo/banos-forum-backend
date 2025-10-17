@@ -14,6 +14,7 @@ import productsRoutes from './routes/products.routes';
 import categoriesRoutes from './routes/categories';
 import shiftsRoutes from './routes/shifts.routes';
 import transactionsRoutes from './routes/transactions.routes';
+import ticketsRoutes from './routes/tickets.routes';
 
 dotenv.config();
 
@@ -61,10 +62,14 @@ app.use('/api/shifts', authenticateToken, loadBusinessContext, shiftsRoutes);
 // Transacciones - Todos los autenticados
 app.use('/api/transactions', authenticateToken, loadBusinessContext, transactionsRoutes);
 
+// Tickets - Todos los autenticados (principalmente cajeros)
+app.use('/api/tickets', authenticateToken, loadBusinessContext, ticketsRoutes);
+
 // Servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌴 Zona horaria: America/Cancun`);
   console.log(`🔐 Autenticación JWT habilitada`);
   console.log(`🏢 Multi-tenant habilitado`);
+  console.log(`🎫 Sistema de tickets habilitado`);
 });
