@@ -72,7 +72,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Aplicar paginación y ordenamiento
     const { data, error, count } = await query
-      .order('type', { ascending: true })
+      .order('created_at', { ascending: false })  // 👈 Ordenar por fecha
       .range(offset, offset + limitNum - 1);
 
     if (error) throw error;

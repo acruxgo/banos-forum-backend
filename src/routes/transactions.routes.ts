@@ -13,7 +13,7 @@ router.get('/', async (req: Request, res: Response) => {
       date_from,
       date_to,
       shift_id,
-      created_by, // ← NUEVO: filtro por empleado
+      created_by,
       page = '1', 
       limit = '50' 
     } = req.query;
@@ -31,7 +31,12 @@ router.get('/', async (req: Request, res: Response) => {
         products (
           id,
           name,
-          type
+          price,
+          service_types (
+            id,
+            name,
+            icon
+          )
         ),
         shifts (
           id,
@@ -48,7 +53,7 @@ router.get('/', async (req: Request, res: Response) => {
       query = query.eq('business_id', req.businessId);
     }
 
-    // Filtro por empleado (created_by) ← NUEVO
+    // Filtro por empleado (created_by)
     if (created_by && created_by !== '' && created_by !== 'all') {
       query = query.eq('created_by', created_by);
     }
@@ -87,7 +92,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (error) throw error;
 
-    // Si hay búsqueda por nombre de producto, filtrar en memoria (Supabase no permite búsqueda en relaciones)
+    // Si hay búsqueda por nombre de producto, filtrar en memoria
     let filteredData = data || [];
     if (search && search !== '') {
       filteredData = filteredData.filter((transaction: any) => 
@@ -110,7 +115,7 @@ router.get('/', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('Error al obtener transacciones:', error);
+    console.error('❌ Error al obtener transacciones:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener transacciones',
@@ -131,7 +136,12 @@ router.get('/shift/:shift_id', async (req: Request, res: Response) => {
         products (
           id,
           name,
-          type
+          price,
+          service_types (
+            id,
+            name,
+            icon
+          )
         )
       `)
       .eq('shift_id', shift_id);
@@ -143,11 +153,16 @@ router.get('/shift/:shift_id', async (req: Request, res: Response) => {
 
     const { data, error } = await query.order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Error al obtener transacciones del turno:', error);
+      throw error;
+    }
 
     // Calcular totales
     const total = data?.reduce((sum, t) => sum + Number(t.total), 0) || 0;
     const count = data?.length || 0;
+
+    console.log(`✅ Transacciones del turno ${shift_id}: ${count} transacciones, total: $${total}`);
 
     res.json({
       success: true,
@@ -160,6 +175,7 @@ router.get('/shift/:shift_id', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    console.error('❌ Error en /transactions/shift/:shift_id:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener transacciones del turno',
@@ -175,8 +191,10 @@ router.post('/', async (req: Request, res: Response) => {
       shift_id, 
       product_id, 
       quantity, 
-      unit_price, 
+      unit_price,
+      total,
       payment_method,
+      status,
       created_by 
     } = req.body;
 
@@ -186,6 +204,14 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'No se pudo determinar la empresa'
+      });
+    }
+
+    // Validar campos requeridos
+    if (!shift_id || !product_id || !quantity || !unit_price || !payment_method || !created_by) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos requeridos'
       });
     }
 
@@ -208,7 +234,8 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const total = quantity * unit_price;
+    // Calcular total si no viene
+    const calculatedTotal = total || (quantity * unit_price);
 
     const { data, error } = await supabase
       .from('transactions')
@@ -217,9 +244,9 @@ router.post('/', async (req: Request, res: Response) => {
         product_id,
         quantity,
         unit_price,
-        total,
+        total: calculatedTotal,
         payment_method,
-        status: 'completed',
+        status: status || 'completed',
         created_by,
         business_id: businessId
       }])
@@ -228,12 +255,19 @@ router.post('/', async (req: Request, res: Response) => {
         products (
           id,
           name,
-          type
+          price,
+          service_types (
+            id,
+            name,
+            icon
+          )
         )
       `)
       .single();
 
     if (error) throw error;
+
+    console.log('✅ Transacción creada:', data.id);
 
     res.status(201).json({
       success: true,
@@ -241,6 +275,7 @@ router.post('/', async (req: Request, res: Response) => {
       data: data
     });
   } catch (error: any) {
+    console.error('❌ Error al registrar venta:', error);
     res.status(500).json({
       success: false,
       message: 'Error al registrar venta',
@@ -293,6 +328,7 @@ router.get('/stats/today', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    console.error('❌ Error al obtener estadísticas:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener estadísticas',
