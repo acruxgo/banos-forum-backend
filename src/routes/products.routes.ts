@@ -26,6 +26,11 @@ router.get('/', async (req: Request, res: Response) => {
       .from('products')
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -102,6 +107,11 @@ router.get('/:id', async (req: Request, res: Response) => {
       .from('products')
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -134,13 +144,13 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/products - Crear nuevo producto
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, price, type, category_id } = req.body;
+    const { name, price, service_type_id, category_id } = req.body;
 
     // Validaciones
-    if (!name || !price || !type) {
+    if (!name || !price || !service_type_id) {
       return res.status(400).json({
         success: false,
-        message: 'Nombre, precio y tipo son requeridos'
+        message: 'Nombre, precio y tipo de servicio son requeridos'
       });
     }
 
@@ -155,13 +165,6 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'El precio debe ser mayor a 0'
-      });
-    }
-
-    if (!['bano', 'ducha', 'locker'].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tipo inválido. Debe ser: bano, ducha o locker'
       });
     }
 
@@ -186,6 +189,22 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'Categoría no encontrada o inactiva'
+      });
+    }
+
+    // Verificar que el tipo de servicio existe y pertenece a la empresa
+    const { data: serviceType, error: serviceTypeError } = await supabase
+      .from('service_types')
+      .select('id')
+      .eq('id', service_type_id)
+      .eq('business_id', req.businessId)
+      .eq('active', true)
+      .single();
+
+    if (serviceTypeError || !serviceType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de servicio no encontrado o inactivo'
       });
     }
 
@@ -216,13 +235,18 @@ router.post('/', async (req: Request, res: Response) => {
       .insert([{ 
         name, 
         price: parseFloat(price),
-        type,
+        service_type_id,
         category_id,
         business_id: req.businessId,
         active: true
       }])
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -251,13 +275,13 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, price, type, category_id } = req.body;
+    const { name, price, service_type_id, category_id } = req.body;
 
     // Validaciones
-    if (!name || !price || !type) {
+    if (!name || !price || !service_type_id) {
       return res.status(400).json({
         success: false,
-        message: 'Nombre, precio y tipo son requeridos'
+        message: 'Nombre, precio y tipo de servicio son requeridos'
       });
     }
 
@@ -272,13 +296,6 @@ router.put('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'El precio debe ser mayor a 0'
-      });
-    }
-
-    if (!['bano', 'ducha', 'locker'].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tipo inválido. Debe ser: bano, ducha o locker'
       });
     }
 
@@ -326,6 +343,22 @@ router.put('/:id', async (req: Request, res: Response) => {
       });
     }
 
+    // Verificar que el tipo de servicio existe y pertenece a la empresa
+    const { data: serviceType, error: serviceTypeError } = await supabase
+      .from('service_types')
+      .select('id')
+      .eq('id', service_type_id)
+      .eq('business_id', existingProduct.business_id)
+      .eq('active', true)
+      .single();
+
+    if (serviceTypeError || !serviceType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de servicio no encontrado o inactivo'
+      });
+    }
+
     // Si el nombre cambió, verificar que no esté en uso EN LA MISMA EMPRESA
     if (name !== existingProduct.name) {
       const { data: nameExists } = await supabase
@@ -351,12 +384,17 @@ router.put('/:id', async (req: Request, res: Response) => {
       .update({ 
         name, 
         price: parseFloat(price),
-        type,
+        service_type_id,
         category_id
       })
       .eq('id', id)
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -421,6 +459,11 @@ router.patch('/:id/toggle-active', async (req: Request, res: Response) => {
       .eq('id', id)
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -483,11 +526,16 @@ router.delete('/:id', async (req: Request, res: Response) => {
       .from('products')
       .update({ 
         deleted_at: new Date().toISOString(),
-        active: false // También desactivar
+        active: false
       })
       .eq('id', id)
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name
@@ -552,11 +600,16 @@ router.patch('/:id/restore', async (req: Request, res: Response) => {
       .from('products')
       .update({ 
         deleted_at: null,
-        active: true // Reactivar al restaurar
+        active: true
       })
       .eq('id', id)
       .select(`
         *,
+        service_types (
+          id,
+          name,
+          icon
+        ),
         categories (
           id,
           name

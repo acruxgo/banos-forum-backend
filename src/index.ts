@@ -16,6 +16,7 @@ import shiftsRoutes from './routes/shifts.routes';
 import transactionsRoutes from './routes/transactions.routes';
 import ticketsRoutes from './routes/tickets.routes';
 import reportsRoutes from './routes/reports.routes';
+import serviceTypesRoutes from './routes/service-types.routes';  
 
 dotenv.config();
 
@@ -57,6 +58,9 @@ app.use('/api/categories', authenticateToken, loadBusinessContext, categoriesRou
 // Productos - Todos los autenticados pueden ver (cajeros necesitan ver productos para vender)
 app.use('/api/products', authenticateToken, loadBusinessContext, productsRoutes);
 
+// Tipos de Servicio - Admin y super_admin
+app.use('/api/service-types', authenticateToken, loadBusinessContext, requireRole('super_admin', 'admin'), serviceTypesRoutes);  
+
 // Turnos - Todos los autenticados
 app.use('/api/shifts', authenticateToken, loadBusinessContext, shiftsRoutes);
 
@@ -66,8 +70,7 @@ app.use('/api/transactions', authenticateToken, loadBusinessContext, transaction
 // Tickets - Todos los autenticados (principalmente cajeros)
 app.use('/api/tickets', authenticateToken, loadBusinessContext, ticketsRoutes);
 
-// Reportes - Supervisor y Admin
-// Reportes - Admin, Supervisor Y CAJERO (para su propio arqueo)
+// Reportes - Supervisor, Admin y Cajero
 app.use('/api/reports', authenticateToken, loadBusinessContext, requireRole('admin', 'supervisor', 'cajero'), reportsRoutes);
 
 // Servidor
@@ -78,4 +81,5 @@ app.listen(PORT, () => {
   console.log(`🏢 Multi-tenant habilitado`);
   console.log(`🎫 Sistema de tickets habilitado`);
   console.log(`📊 Reportes habilitados`);
+  console.log(`🏷️ Tipos de servicio dinámicos habilitados`);  
 });
