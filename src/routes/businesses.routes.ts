@@ -455,4 +455,113 @@ router.patch('/:id/toggle-active', requireSuperAdmin, async (req: Request, res: 
   }
 });
 
+// DELETE /api/businesses/:id - Eliminar empresa (solo super_admin)
+// DELETE /api/businesses/:id - Eliminar empresa y todos sus datos (solo super_admin)
+router.delete('/:id', requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar que la empresa existe
+    const { data: business, error: fetchError } = await supabase
+      .from('businesses')
+      .select('id, name')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Empresa no encontrada'
+      });
+    }
+
+    console.log('🗑️ Eliminando empresa y todos sus datos:', business.name);
+
+    // ELIMINAR EN ORDEN (de dependientes a independientes)
+    
+    // 1. Eliminar transacciones
+    const { error: transError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('business_id', id);
+    
+    if (transError) {
+      console.error('Error eliminando transacciones:', transError);
+    } else {
+      console.log('✅ Transacciones eliminadas');
+    }
+
+    // 2. Eliminar turnos
+    const { error: shiftsError } = await supabase
+      .from('shifts')
+      .delete()
+      .eq('business_id', id);
+    
+    if (shiftsError) {
+      console.error('Error eliminando turnos:', shiftsError);
+    } else {
+      console.log('✅ Turnos eliminados');
+    }
+
+    // 3. Eliminar productos
+    const { error: productsError } = await supabase
+      .from('products')
+      .delete()
+      .eq('business_id', id);
+    
+    if (productsError) {
+      console.error('Error eliminando productos:', productsError);
+    } else {
+      console.log('✅ Productos eliminados');
+    }
+
+    // 4. Eliminar categorías
+    const { error: categoriesError } = await supabase
+      .from('categories')
+      .delete()
+      .eq('business_id', id);
+    
+    if (categoriesError) {
+      console.error('Error eliminando categorías:', categoriesError);
+    } else {
+      console.log('✅ Categorías eliminadas');
+    }
+
+    // 5. Eliminar usuarios
+    const { error: usersError } = await supabase
+      .from('users')
+      .delete()
+      .eq('business_id', id);
+    
+    if (usersError) {
+      console.error('Error eliminando usuarios:', usersError);
+      throw usersError;
+    } else {
+      console.log('✅ Usuarios eliminados');
+    }
+
+    // 6. Finalmente, eliminar la empresa
+    const { error: businessError } = await supabase
+      .from('businesses')
+      .delete()
+      .eq('id', id);
+
+    if (businessError) throw businessError;
+
+    console.log('✅ Empresa eliminada completamente:', business.name);
+
+    res.json({
+      success: true,
+      message: 'Empresa y todos sus datos eliminados exitosamente'
+    });
+  } catch (error: any) {
+    console.error('❌ Error al eliminar empresa:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al eliminar empresa',
+      error: error.message
+    });
+  }
+});
+
 export default router;

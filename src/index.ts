@@ -15,6 +15,7 @@ import categoriesRoutes from './routes/categories';
 import shiftsRoutes from './routes/shifts.routes';
 import transactionsRoutes from './routes/transactions.routes';
 import ticketsRoutes from './routes/tickets.routes';
+import reportsRoutes from './routes/reports.routes';
 
 dotenv.config();
 
@@ -65,6 +66,10 @@ app.use('/api/transactions', authenticateToken, loadBusinessContext, transaction
 // Tickets - Todos los autenticados (principalmente cajeros)
 app.use('/api/tickets', authenticateToken, loadBusinessContext, ticketsRoutes);
 
+// Reportes - Supervisor y Admin
+// Reportes - Admin, Supervisor Y CAJERO (para su propio arqueo)
+app.use('/api/reports', authenticateToken, loadBusinessContext, requireRole('admin', 'supervisor', 'cajero'), reportsRoutes);
+
 // Servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
@@ -72,4 +77,5 @@ app.listen(PORT, () => {
   console.log(`🔐 Autenticación JWT habilitada`);
   console.log(`🏢 Multi-tenant habilitado`);
   console.log(`🎫 Sistema de tickets habilitado`);
+  console.log(`📊 Reportes habilitados`);
 });

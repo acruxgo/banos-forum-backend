@@ -30,6 +30,8 @@ router.get('/', async (req: Request, res: Response) => {
     // Filtrar por empresa si no es super admin
     if (!req.isSuperAdmin && req.businessId) {
       query = query.eq('business_id', req.businessId);
+      // NUNCA mostrar super_admin en el listado
+    query = query.neq('role', 'super_admin');
     }
 
     // Filtrar eliminados (por defecto no mostrar)
